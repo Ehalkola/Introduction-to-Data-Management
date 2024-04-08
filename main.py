@@ -156,14 +156,27 @@ def add_salesman():
 
 def get_orders():
     try:
-        orders = Order.query.all()
+        order_date_start = request.args.get('orderDateStart')
+        order_date_end = request.args.get('orderDateEnd')
+        status = request.args.get('status')
+        query = Order.query
+        if order_date_start:
+            query = query.filter(Order.ord_date > datetime.strptime(order_date_start, '%Y-%m-%d').date())
+        if order_date_end:
+            query = query.filter(Order.ord_date < datetime.strptime(order_date_end, '%Y-%m-%d').date())
+        if status:
+            query = query.filter(Order.status == status)
+        orders = query.all()
+
         data = [{'ord_no': order.ord_no, 'purch_amt': order.purch_amt,
                  'ord_date': order.ord_date.strftime('%Y-%m-%d'),
                  'customer_id': order.customer_id, 'salesman_id': order.salesman_id} for order in orders]
+
         return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+    
 def get_order(ord_no):
     order = Order.query.get_or_404(ord_no)
     return jsonify({'ord_no': order.ord_no, 'purch_amt': order.purch_amt,
@@ -227,5 +240,4 @@ def add_new_order():
 
 if __name__ == '__main__':
     app.run(debug=True)
-    
     
