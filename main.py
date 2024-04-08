@@ -1,288 +1,213 @@
 from flask import Flask, jsonify, request
-import mysql.connector
+from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:B33t4s4lp44j42023@localhost/mybusiness'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['passwd'] = 'B33t4s4lp44j42023'
+db = SQLAlchemy(app)
 
-# MySQL Configuration
-conn = mysql.connector.connect(
-    host='localhost',
-    user='root',  # Replace with your MySQL username
-    password='B33t4s4lp44j42023',  # Replace with your MySQL password
-    database='mybusiness'  # Replace with your database name
-)
-cur = conn.cursor()
+class Customer(db.Model):
+    customer_id = db.Column(db.Integer, primary_key=True)
+    cust_name = db.Column(db.String(100))
+    city = db.Column(db.String(100))
+    grade = db.Column(db.String(10))
+    salesman_id = db.Column(db.Integer)
 
-# Customers Table API Routes
+    def __repr__(self):
+        return f"<Customer {self.customer_id}: {self.cust_name} ({self.city})>"
 
-# a. /customers - GET
+class Salesman(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100))
+    city = db.Column(db.String(100))
+    commission = db.Column(db.Float)
+
+    def __repr__(self):
+        return f"<Salesman {self.id}: {self.name} ({self.city})>"
+
+class Ord(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    ord_no = db.Column(db.Integer)
+    purch_amt = db.Column(db.Float)
+    customer_id = db.Column(db.Integer)
+
+    def __repr__(self):
+        return f"<Ord {self.id}: Order No. {self.ord_no}, Purchased Amount: {self.purch_amt}>"
+
+
 @app.route('/customers', methods=['GET'])
 def get_customers():
+    cust_name = request.args.get('cust_name')
+    city = request.args.get('city')
+    grade = request.args.get('grade')
+    salesman_id = request.args.get('salesman_id')
     try:
-        query = "SELECT * FROM customers"
-        cur.execute(query)
-        customers = cur.fetchall()
-        return jsonify(customers)
+        query = Customer.query
+        if cust_name:
+            query = query.filter_by(cust_name=cust_name)
+        if city:
+            query = query.filter_by(city=city)
+        if grade:
+            query = query.filter_by(grade=grade)
+        if salesman_id:
+            query = query.filter_by(salesman_id=salesman_id)
+        customers = query.all()
+        data = [{'customer_id': customer.customer_id, 'cust_name': customer.cust_name, 'city': customer.city,
+                 'grade': customer.grade, 'salesman_id': customer.salesman_id} for customer in customers]
+        return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# b. /customers/<int: customer_id> - GET
-@app.route('/customers/<int:customer_id>', methods=['GET'])
-def get_customer(customer_id):
-    try:
-        query = "SELECT * FROM customers WHERE customerNumber = %s"
-        cur.execute(query, (customer_id,))
-        customer = cur.fetchone()
-        return jsonify(customer)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+@app.route('/customers/<int:customer_id>', methods=['GET', 'PUT', 'DELETE'])
+def customer(customer_id):
+    customer = Customer.query.get_or_404(customer_id)
+    if request.method == 'GET':
+        return jsonify({'customer_id': customer.customer_id, 'cust_name': customer.cust_name, 'city': customer.city,
+                        'grade': customer.grade, 'salesman_id': customer.salesman_id})
+    elif request.method == 'PUT':
+        try:
+            data = request.json
+            customer.cust_name = data.get('cust_name', customer.cust_name)
+            customer.city = data.get('city', customer.city)
+            customer.grade = data.get('grade', customer.grade)
+            customer.salesman_id = data.get('salesman_id', customer.salesman_id)
+            db.session.commit()
+            return 'Customer updated', 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': str(e)}), 500
+    elif request.method == 'DELETE':
+        try:
+            db.session.delete(customer)
+            db.session.commit()
+            return 'Customer deleted', 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': str(e)}), 500
+    else:
+        return 'Invalid request', 400
 
-# c. /customers - POST
 @app.route('/customers', methods=['POST'])
 def add_customer():
     try:
-        data = request.get_json()
-        query = "INSERT INTO customers (customerName, contactLastName, contactFirstName, phone, addressLine1, addressLine2, city, state, postalCode, country, salesRepEmployeeNumber, creditLimit) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-        values = (data['customerName'], data['contactLastName'], data['contactFirstName'], data['phone'], data['addressLine1'], data['addressLine2'], data['city'], data['state'], data['postalCode'], data['country'], data['salesRepEmployeeNumber'], data['creditLimit'])
-        cur.execute(query, values)
-        conn.commit()
-        return jsonify({"message": "Customer added successfully"}), 201
+        data = request.json
+        customer = Customer(cust_name=data['cust_name'], city=data['city'],
+                            grade=data['grade'], salesman_id=data['salesman_id'])
+        db.session.add(customer)
+        db.session.commit()
+        return 'Customer added', 201
     except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-# d. /customers/<int: customer_id> - PUT
-@app.route('/customers/<int:customer_id>', methods=['PUT'])
-def update_customer(customer_id):
-    try:
-        data = request.get_json()
-        query = "UPDATE customers SET customerName = %s, contactLastName = %s, contactFirstName = %s, phone = %s, addressLine1 = %s, addressLine2 = %s, city = %s, state = %s, postalCode = %s, country = %s, salesRepEmployeeNumber = %s, creditLimit = %s WHERE customerNumber = %s"
-        values = (data['customerName'], data['contactLastName'], data['contactFirstName'], data['phone'], data['addressLine1'], data['addressLine2'], data['city'], data['state'], data['postalCode'], data['country'], data['salesRepEmployeeNumber'], data['creditLimit'], customer_id)
-        cur.execute(query, values)
-        conn.commit()
-        return jsonify({"message": "Customer updated successfully"})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# e. /customers/<int: customer_id> - PATCH
-@app.route('/customers/<int:customer_id>', methods=['PATCH'])
-def partial_update_customer(customer_id):
-    try:
-        data = request.get_json()
-        updates = ', '.join([f"{key} = '{value}'" for key, value in data.items()])
-        query = f"UPDATE customers SET {updates} WHERE customerNumber = {customer_id}"
-        cur.execute(query)
-        conn.commit()
-        return jsonify({"message": "Customer updated successfully"})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# f. /customers/<int: customer_id> - DELETE
-@app.route('/customers/<int:customer_id>', methods=['DELETE'])
-def delete_customer(customer_id):
-    try:
-        query = "DELETE FROM customers WHERE customerNumber = %s"
-        cur.execute(query, (customer_id,))
-        conn.commit()
-        return jsonify({"message": "Customer deleted successfully"})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# Salesmen Table API Routes
-
-# a. /salesmen - GET
 @app.route('/salesmen', methods=['GET'])
 def get_salesmen():
     try:
-        query = "SELECT * FROM employees"
-        cur.execute(query)
-        salesmen = cur.fetchall()
-        return jsonify(salesmen)
+        salesmen = Salesman.query.all()
+        data = [{'id': salesman.id, 'name': salesman.name, 'city': salesman.city,
+                 'commission': salesman.commission} for salesman in salesmen]
+        return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# b. /salesmen/<int: salesman_id> - GET
-@app.route('/salesmen/<int:salesman_id>', methods=['GET'])
-def get_salesman(salesman_id):
-    try:
-        query = "SELECT * FROM employees WHERE employeeNumber = %s"
-        cur.execute(query, (salesman_id,))
-        salesman = cur.fetchone()
-        return jsonify(salesman)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+@app.route('/salesmen/<int:salesman_id>', methods=['GET', 'PUT', 'DELETE'])
+def salesman(salesman_id):
+    salesman = Salesman.query.get_or_404(salesman_id)
 
-# c. /salesmen - POST
+    if request.method == 'GET':
+        return jsonify({'id': salesman.id, 'name': salesman.name, 'city': salesman.city,
+                        'commission': salesman.commission})
+    elif request.method == 'PUT':
+        try:
+            data = request.json
+            salesman.name = data.get('name', salesman.name)
+            salesman.city = data.get('city', salesman.city)
+            salesman.commission = data.get('commission', salesman.commission)
+            db.session.commit()
+            return 'Salesman updated', 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': str(e)}), 500
+    elif request.method == 'DELETE':
+        try:
+            db.session.delete(salesman)
+            db.session.commit()
+            return 'Salesman deleted', 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': str(e)}), 500
+    else:
+        return 'Invalid request', 400
+    
+    
 @app.route('/salesmen', methods=['POST'])
 def add_salesman():
     try:
-        data = request.get_json()
-        query = "INSERT INTO employees (lastName, firstName, extension, email, officeCode, reportsTo, jobTitle) VALUES (%s, %s, %s, %s, %s, %s, %s)"
-        values = (data['lastName'], data['firstName'], data['extension'], data['email'], data['officeCode'], data['reportsTo'], data['jobTitle'])
-        cur.execute(query, values)
-        conn.commit()
-        return jsonify({"message": "Salesman added successfully"}), 201
+        data = request.json
+        salesman = Salesman(name=data['name'], city=data['city'],
+                            commission=data['commission'])
+        db.session.add(salesman)
+        db.session.commit()
+        return 'Salesman added', 201
     except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-# d. /salesmen/<int: salesman_id> - PUT
-@app.route('/salesmen/<int:salesman_id>', methods=['PUT'])
-def update_salesman(salesman_id):
-    try:
-        data = request.get_json()
-        query = "UPDATE employees SET lastName = %s, firstName = %s, extension = %s, email = %s, officeCode = %s, reportsTo = %s, jobTitle = %s WHERE employeeNumber = %s"
-        values = (data['lastName'], data['firstName'], data['extension'], data['email'], data['officeCode'], data['reportsTo'], data['jobTitle'], salesman_id)
-        cur.execute(query, values)
-        conn.commit()
-        return jsonify({"message": "Salesman updated successfully"})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# e. /salesmen/<int: salesman_id> - PATCH
-@app.route('/salesmen/<int:salesman_id>', methods=['PATCH'])
-def partial_update_salesman(salesman_id):
-    try:
-        data = request.get_json()
-        updates = ', '.join([f"{key} = '{value}'" for key, value in data.items()])
-        query = f"UPDATE employees SET {updates} WHERE employeeNumber = {salesman_id}"
-        cur.execute(query)
-        conn.commit()
-        return jsonify({"message": "Salesman updated successfully"})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# f. /salesmen/<int: salesman_id> - DELETE
-@app.route('/salesmen/<int:salesman_id>', methods=['DELETE'])
-def delete_salesman(salesman_id):
-    try:
-        query = "DELETE FROM employees WHERE employeeNumber = %s"
-        cur.execute(query, (salesman_id,))
-        conn.commit()
-        return jsonify({"message": "Salesman deleted successfully"})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# Orders Table API Routes
-
-# a. /orders - GET
-@app.route('/orders', methods=['GET'])
+@app.route('/ords', methods=['GET'])
 def get_orders():
     try:
-        query = "SELECT * FROM orders"
-        cur.execute(query)
-        orders = cur.fetchall()
-        return jsonify(orders)
+        orders = Ord.query.all()
+        data = [{'id': order.id, 'ord_no': order.ord_no, 'purch_amt': order.purch_amt,
+                 'customer_id': order.customer_id} for order in orders]
+        return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# b. /orders/<int: order_id> - GET
-@app.route('/orders/<int:order_id>', methods=['GET'])
-def get_order(order_id):
-    try:
-        query = "SELECT * FROM orders WHERE orderNumber = %s"
-        cur.execute(query, (order_id,))
-        order = cur.fetchone()
-        return jsonify(order)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+@app.route('/ords/<int:ord_id>', methods=['GET', 'PUT', 'DELETE'])
+def order(ord_id):
+    order = Ord.query.get_or_404(ord_id)
+    if request.method == 'GET':
+        return jsonify({'id': order.id, 'ord_no': order.ord_no, 'purch_amt': order.purch_amt,
+                        'customer_id': order.customer_id})
+    elif request.method == 'PUT':
+        try:
+            data = request.json
+            order.ord_no = data.get('ord_no', order.ord_no)
+            order.purch_amt = data.get('purch_amt', order.purch_amt)
+            order.customer_id = data.get('customer_id', order.customer_id)
+            db.session.commit()
+            return 'Order updated', 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': str(e)}), 500
+    elif request.method == 'DELETE':
+        try:
+            db.session.delete(order)
+            db.session.commit()
+            return 'Order deleted', 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': str(e)}), 500
+    else:
+        return 'Invalid request', 400
 
-# c. /orders - POST
-@app.route('/orders', methods=['POST'])
+@app.route('/ords', methods=['POST'])
 def add_order():
     try:
-        data = request.get_json()
-        query = "INSERT INTO orders (orderDate, requiredDate, shippedDate, status, comments, customerNumber) VALUES (%s, %s, %s, %s, %s, %s)"
-        values = (data['orderDate'], data['requiredDate'], data['shippedDate'], data['status'], data['comments'], data['customerNumber'])
-        cur.execute(query, values)
-        conn.commit()
-        return jsonify({"message": "Order added successfully"}), 201
+        data = request.json
+        order = Ord(ord_no=data['ord_no'], purch_amt=data['purch_amt'],
+                    customer_id=data['customer_id'])
+        db.session.add(order)
+        db.session.commit()
+        return 'Order added', 201
     except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
-
-# d. /orders/<int: order_id> - PATCH
-@app.route('/orders/<int:order_id>', methods=['PATCH'])
-def update_order(order_id):
-    try:
-        data = request.get_json()
-        query = "UPDATE orders SET orderDate = %s, requiredDate = %s, shippedDate = %s, status = %s, comments = %s, customerNumber = %s WHERE orderNumber = %s"
-        values = (data['orderDate'], data['requiredDate'], data['shippedDate'], data['status'], data['comments'], data['customerNumber'], order_id)
-        cur.execute(query, values)
-        conn.commit()
-        return jsonify({"message": "Order updated successfully"})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# e. /orders/<int: order_id> - DELETE
-@app.route('/orders/<int:order_id>', methods=['DELETE'])
-def delete_order(order_id):
-    try:
-        query = "DELETE FROM orders WHERE orderNumber = %s"
-        cur.execute(query, (order_id,))
-        conn.commit()
-        return jsonify({"message": "Order deleted successfully"})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# Orderdetails Table API Routes
-
-# a. /orderdetails - GET
-@app.route('/orderdetails', methods=['GET'])
-def get_orderdetails():
-    try:
-        query = "SELECT * FROM orderdetails"
-        cur.execute(query)
-        orderdetails = cur.fetchall()
-        return jsonify(orderdetails)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# b. /orderdetails/<int: order_id>/product/<product_code> - GET
-@app.route('/orderdetails/<int:order_id>/product/<product_code>', methods=['GET'])
-def get_orderdetail(order_id, product_code):
-    try:
-        query = "SELECT * FROM orderdetails WHERE orderNumber = %s AND productCode = %s"
-        cur.execute(query, (order_id, product_code))
-        orderdetail = cur.fetchone()
-        return jsonify(orderdetail)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# c. /orderdetails - POST
-@app.route('/orderdetails', methods=['POST'])
-def add_orderdetail():
-    try:
-        data = request.get_json()
-        query = "INSERT INTO orderdetails (orderNumber, productCode, quantityOrdered, priceEach, orderLineNumber) VALUES (%s, %s, %s, %s, %s)"
-        values = (data['orderNumber'], data['productCode'], data['quantityOrdered'], data['priceEach'], data['orderLineNumber'])
-        cur.execute(query, values)
-        conn.commit()
-        return jsonify({"message": "Order detail added successfully"}), 201
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# d. /orderdetails/<int: order_id>/product/<product_code> - PATCH
-@app.route('/orderdetails/<int:order_id>/product/<product_code>', methods=['PATCH'])
-def update_orderdetail(order_id, product_code):
-    try:
-        data = request.get_json()
-        query = "UPDATE orderdetails SET quantityOrdered = %s, priceEach = %s, orderLineNumber = %s WHERE orderNumber = %s AND productCode = %s"
-        values = (data['quantityOrdered'], data['priceEach'], data['orderLineNumber'], order_id, product_code)
-        cur.execute(query, values)
-        conn.commit()
-        return jsonify({"message": "Order detail updated successfully"})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# e. /orderdetails/<int: order_id>/product/<product_code> - DELETE
-@app.route('/orderdetails/<int:order_id>/product/<product_code>', methods=['DELETE'])
-def delete_orderdetail(order_id, product_code):
-    try:
-        query = "DELETE FROM orderdetails WHERE orderNumber = %s AND productCode = %s"
-        cur.execute(query, (order_id, product_code))
-        conn.commit()
-        return jsonify({"message": "Order detail deleted successfully"})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
+    
+    
 if __name__ == '__main__':
     app.run(debug=True)
-
-
+    
+    
+    
