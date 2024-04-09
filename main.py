@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+import mysql.connector
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:B33t4s4lp44j42023@localhost/mybusiness'
@@ -35,60 +36,24 @@ class Order(db.Model):
     def __repr__(self):
         return f"<Order {self.ord_no}: Purchased Amount: {self.purch_amt}, Date: {self.ord_date}>"
 
-# Define your routes and functions as before
-
 @app.route('/customers', methods=['GET'])
-def get_customers():
-    cust_name = request.args.get('cust_name')
-    city = request.args.get('city')
-    grade = request.args.get('grade')
-    salesman_id = request.args.get('salesman_id')
+def get_all_customers():
     try:
-        query = Customer.query
-        if cust_name:
-            query = query.filter_by(cust_name=cust_name)
-        if city:
-            query = query.filter_by(city=city)
-        if grade:
-            query = query.filter_by(grade=grade)
-        if salesman_id:
-            query = query.filter_by(salesman_id=salesman_id)
-        customers = query.all()
+        customers = Customer.query.all()
         data = [{'customer_id': customer.customer_id, 'cust_name': customer.cust_name, 'city': customer.city,
                  'grade': customer.grade, 'salesman_id': customer.salesman_id} for customer in customers]
         return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/customers/<int:customer_id>', methods=['GET', 'PUT', 'DELETE'])
-def customer(customer_id):
+# Get customer by ID
+@app.route('/customers/<int:customer_id>', methods=['GET'])
+def get_customer_by_id(customer_id):
     customer = Customer.query.get_or_404(customer_id)
-    if request.method == 'GET':
-        return jsonify({'customer_id': customer.customer_id, 'cust_name': customer.cust_name, 'city': customer.city,
-                        'grade': customer.grade, 'salesman_id': customer.salesman_id})
-    elif request.method == 'PUT':
-        try:
-            data = request.json
-            customer.cust_name = data.get('cust_name', customer.cust_name)
-            customer.city = data.get('city', customer.city)
-            customer.grade = data.get('grade', customer.grade)
-            customer.salesman_id = data.get('salesman_id', customer.salesman_id)
-            db.session.commit()
-            return 'Customer updated', 200
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({'error': str(e)}), 500
-    elif request.method == 'DELETE':
-        try:
-            db.session.delete(customer)
-            db.session.commit()
-            return 'Customer deleted', 200
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({'error': str(e)}), 500
-    else:
-        return 'Invalid request', 400
+    return jsonify({'customer_id': customer.customer_id, 'cust_name': customer.cust_name, 'city': customer.city,
+                    'grade': customer.grade, 'salesman_id': customer.salesman_id})
 
+# Add a new customer
 @app.route('/customers', methods=['POST'])
 def add_customer():
     try:
@@ -97,13 +62,64 @@ def add_customer():
                             grade=data['grade'], salesman_id=data['salesman_id'])
         db.session.add(customer)
         db.session.commit()
-        return 'Customer added', 201
+        return f'Customer added successfully!', 201
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
+# Update a customer by ID
+@app.route('/customers/<int:customer_id>', methods=['PUT'])
+def update_customer(customer_id):
+    try:
+        data = request.json
+        customer = Customer.query.get_or_404(customer_id)
+        
+        if 'cust_name' in data:
+            customer.cust_name = data['cust_name']
+        if 'city' in data:
+            customer.city = data['city']
+        if 'grade' in data:
+            customer.grade = data['grade']
+        if 'salesman_id' in data:
+            customer.salesman_id = data['salesman_id']
+        
+        db.session.commit()
+        return f'Customer information replaced, , customer_id {customer_id}.', 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# Patch a customer by ID
+@app.route('/customers/<int:customer_id>', methods=['PATCH'])
+def patch_customer(customer_id):
+    try:
+        data = request.json
+        customer = Customer.query.get_or_404(customer_id)
+        
+        for key, value in data.items():
+            setattr(customer, key, value)
+        
+        db.session.commit()
+        return f'Customer updated, customer_id {customer_id}.', 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# Delete a customer by ID
+@app.route('/customers/<int:customer_id>', methods=['DELETE'])
+def delete_customer(customer_id):
+    try:
+        customer = Customer.query.get_or_404(customer_id)
+        db.session.delete(customer)
+        db.session.commit()
+        return f'Customer deleted, customer_id {customer_id}.', 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# Get all salesmen
 @app.route('/salesmen', methods=['GET'])
-def get_salesmen():
+def get_all_salesmen():
     try:
         salesmen = Salesman.query.all()
         data = [{'salesman_id': salesman.salesman_id, 'name': salesman.name, 'city': salesman.city,
@@ -112,35 +128,14 @@ def get_salesmen():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/salesmen/<int:salesman_id>', methods=['GET', 'PUT', 'DELETE'])
-def salesman(salesman_id):
+# Get salesman by ID
+@app.route('/salesmen/<int:salesman_id>', methods=['GET'])
+def get_salesman_by_id(salesman_id):
     salesman = Salesman.query.get_or_404(salesman_id)
+    return jsonify({'salesman_id': salesman.salesman_id, 'name': salesman.name, 'city': salesman.city,
+                    'commission': salesman.commission})
 
-    if request.method == 'GET':
-        return jsonify({'salesman_id': salesman.salesman_id, 'name': salesman.name, 'city': salesman.city,
-                        'commission': salesman.commission})
-    elif request.method == 'PUT':
-        try:
-            data = request.json
-            salesman.name = data.get('name', salesman.name)
-            salesman.city = data.get('city', salesman.city)
-            salesman.commission = data.get('commission', salesman.commission)
-            db.session.commit()
-            return 'Salesman updated', 200
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({'error': str(e)}), 500
-    elif request.method == 'DELETE':
-        try:
-            db.session.delete(salesman)
-            db.session.commit()
-            return 'Salesman deleted', 200
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({'error': str(e)}), 500
-    else:
-        return 'Invalid request', 400
-
+# Add a new salesman
 @app.route('/salesmen', methods=['POST'])
 def add_salesman():
     try:
@@ -149,63 +144,81 @@ def add_salesman():
                             commission=data['commission'])
         db.session.add(salesman)
         db.session.commit()
-        return 'Salesman added', 201
+        return 'Salesman added successfully!', 201
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-def get_orders():
+# Update a salesman by ID
+@app.route('/salesmen/<int:salesman_id>', methods=['PUT'])
+def replace_salesman(salesman_id):
     try:
-        order_date_start = request.args.get('orderDateStart')
-        order_date_end = request.args.get('orderDateEnd')
-        status = request.args.get('status')
-        query = Order.query
-        if order_date_start:
-            query = query.filter(Order.ord_date > datetime.strptime(order_date_start, '%Y-%m-%d').date())
-        if order_date_end:
-            query = query.filter(Order.ord_date < datetime.strptime(order_date_end, '%Y-%m-%d').date())
-        if status:
-            query = query.filter(Order.status == status)
-        orders = query.all()
+        data = request.json
+        salesman = Salesman.query.get_or_404(salesman_id)
+        
+        if 'name' in data:
+            salesman.name = data['name']
+        if 'city' in data:
+            salesman.city = data['city']
+        if 'commission' in data:
+            salesman.commission = data['commission']
+        
+        db.session.commit()
+        return f'Salesman information replaced, salesman_id {salesman_id}.', 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
+# Patch a salesman by ID
+@app.route('/salesmen/<int:salesman_id>', methods=['PATCH'])
+def patch_salesman(salesman_id):
+    try:
+        data = request.json
+        salesman = Salesman.query.get_or_404(salesman_id)
+        
+        for key, value in data.items():
+            setattr(salesman, key, value)
+        
+        db.session.commit()
+        return f'Salesman patched, salesman_id {salesman_id}.', 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# Delete a salesman by ID
+@app.route('/salesmen/<int:salesman_id>', methods=['DELETE'])
+def delete_salesman(salesman_id):
+    try:
+        salesman = Salesman.query.get_or_404(salesman_id)
+        db.session.delete(salesman)
+        db.session.commit()
+        return f'Salesman deleted, salesman_id {salesman_id}.', 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# Get all orders
+@app.route('/orders', methods=['GET'])
+def get_all_orders():
+    try:
+        orders = Order.query.all()
         data = [{'ord_no': order.ord_no, 'purch_amt': order.purch_amt,
                  'ord_date': order.ord_date.strftime('%Y-%m-%d'),
                  'customer_id': order.customer_id, 'salesman_id': order.salesman_id} for order in orders]
-
         return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-    
-def get_order(ord_no):
+# Get order by ord_no
+@app.route('/orders/<int:ord_no>', methods=['GET'])
+def get_order_by_ord_no(ord_no):
     order = Order.query.get_or_404(ord_no)
     return jsonify({'ord_no': order.ord_no, 'purch_amt': order.purch_amt,
                     'ord_date': order.ord_date.strftime('%Y-%m-%d'),
                     'customer_id': order.customer_id, 'salesman_id': order.salesman_id})
 
-def update_order(ord_no):
-    try:
-        data = request.json
-        order = Order.query.get_or_404(ord_no)
-        order.purch_amt = data.get('purch_amt', order.purch_amt)
-        order.customer_id = data.get('customer_id', order.customer_id)
-        order.salesman_id = data.get('salesman_id', order.salesman_id)
-        db.session.commit()
-        return 'Order updated', 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-def delete_order(ord_no):
-    try:
-        order = Order.query.get_or_404(ord_no)
-        db.session.delete(order)
-        db.session.commit()
-        return 'Order deleted', 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
+# Add a new order
+@app.route('/orders', methods=['POST'])
 def add_order():
     try:
         data = request.json
@@ -214,30 +227,53 @@ def add_order():
                       customer_id=data['customer_id'], salesman_id=data['salesman_id'])
         db.session.add(order)
         db.session.commit()
-        return 'Order added', 201
+        return 'Order added successfully!', 201
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
-@app.route('/orders', methods=['GET'])
-def get_all_orders():
-    return get_orders()
 
-@app.route('/orders/<int:ord_no>', methods=['GET'])
-def get_specific_order(ord_no):
-    return get_order(ord_no)
-
+# Update an order by ord_no
 @app.route('/orders/<int:ord_no>', methods=['PUT'])
-def update_specific_order(ord_no):
-    return update_order(ord_no)
+def update_order(ord_no):
+    try:
+        data = request.json
+        order = Order.query.get_or_404(ord_no)
+        order.purch_amt = data['purch_amt']
+        order.ord_date = datetime.strptime(data['ord_date'], '%Y-%m-%d').date()
+        order.customer_id = data['customer_id']
+        order.salesman_id = data['salesman_id']
+        db.session.commit()
+        return f'Order information replaced, ord_no {ord_no}.', 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
+# Patch an order by ord_no
+@app.route('/orders/<int:ord_no>', methods=['PATCH'])
+def patch_order(ord_no):
+    try:
+        data = request.json
+        order = Order.query.get_or_404(ord_no)
+        for key, value in data.items():
+            setattr(order, key, value)
+        db.session.commit()
+        return f'Order updated, ord_no {ord_no}.', 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# Delete an order by ord_no
 @app.route('/orders/<int:ord_no>', methods=['DELETE'])
-def delete_specific_order(ord_no):
-    return delete_order(ord_no)
+def delete_order(ord_no):
+    try:
+        order = Order.query.get_or_404(ord_no)
+        db.session.delete(order)
+        db.session.commit()
+        return f'Order deleted, ord_no {ord_no}.', 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
-@app.route('/orders', methods=['POST'])
-def add_new_order():
-    return add_order()
-
+# Run the app/file
 if __name__ == '__main__':
     app.run(debug=True)
-    
