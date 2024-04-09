@@ -3,11 +3,14 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import mysql.connector
 
+# Initialize connection
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:B33t4s4lp44j42023@localhost/mybusiness'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['passwd'] = 'B33t4s4lp44j42023'
 db = SQLAlchemy(app)
+
+# Define classess for customer, salesman and order table in mysql
 
 class Customer(db.Model):
     customer_id = db.Column(db.Integer, primary_key=True)
@@ -36,6 +39,7 @@ class Order(db.Model):
     def __repr__(self):
         return f"<Order {self.ord_no}: Purchased Amount: {self.purch_amt}, Date: {self.ord_date}>"
 
+# Get all customers 
 @app.route('/customers', methods=['GET'])
 def get_all_customers():
     try:
@@ -197,15 +201,36 @@ def delete_salesman(salesman_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-# Get all orders
+# Get all orders with aggregation
 @app.route('/orders', methods=['GET'])
-def get_all_orders():
+def get_all_orders_with_aggregation():
     try:
-        orders = Order.query.all()
-        data = [{'ord_no': order.ord_no, 'purch_amt': order.purch_amt,
-                 'ord_date': order.ord_date.strftime('%Y-%m-%d'),
-                 'customer_id': order.customer_id, 'salesman_id': order.salesman_id} for order in orders]
-        return jsonify(data)
+        # Check if aggregation type is specified in query parameters
+        agg_type = request.args.get('agg_type', None)
+        if agg_type is None:
+            # If aggregation type is not specified, return all orders
+            orders = Order.query.all()
+            data = [{'ord_no': order.ord_no, 'purch_amt': order.purch_amt,
+                     'ord_date': order.ord_date.strftime('%Y-%m-%d'),
+                     'customer_id': order.customer_id, 'salesman_id': order.salesman_id} for order in orders]
+            return jsonify(data)
+        elif agg_type == 'sum':
+            # Perform aggregation for 'sum' on purch_amt
+            results = db.session.query(Order.ord_no, db.func.sum(Order.purch_amt).label('total')).group_by(Order.ord_no).all()
+            data = [{'ord_no': result[0], 'total': result[1]} for result in results]
+            return jsonify(data)
+        elif agg_type == 'avg':
+            # Perform aggregation for 'avg' on purch_amt
+            results = db.session.query(Order.ord_no, db.func.avg(Order.purch_amt).label('average')).group_by(Order.ord_no).all()
+            data = [{'ord_no': result[0], 'average': result[1]} for result in results]
+            return jsonify(data)
+        elif agg_type == 'count':
+            # Perform aggregation for 'count' on ord_no
+            results = db.session.query(Order.ord_no, db.func.count().label('count')).group_by(Order.ord_no).all()
+            data = [{'ord_no': result[0], 'count': result[1]} for result in results]
+            return jsonify(data)
+        else:
+            return jsonify({'error': 'Invalid aggregation type. Valid types are: sum, avg, count'}), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
